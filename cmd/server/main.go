@@ -52,6 +52,11 @@ func handleGet(connection *net.UDPConn, address *net.UDPAddr, filename string) {
 	}
 	defer f.Close()
 
+	fileInfo, err := f.Stat()
+	if err == nil {
+		log.Printf("Sending file %s (%d bytes) to %s", filename, fileInfo.Size(), address.String())
+	}
+
 	reader := bufio.NewReader(f)
 	const payloadSize = 1024
 	windowSize := 5
@@ -96,7 +101,10 @@ func handleGet(connection *net.UDPConn, address *net.UDPAddr, filename string) {
 			acked[h.Seq] = true
 
 			data := make([]byte, payloadSize)
-			m, _ := io.ReadFull(reader, data)
+			m, err := io.ReadFull(reader, data)
+			if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+				log.Fatalf("error reading data: %v", err)
+			}
 			if m > 0 {
 				pkt, _ := Pack(MsgTypeData, nextSeq, data[:m])
 				connection.WriteToUDP(pkt, address)

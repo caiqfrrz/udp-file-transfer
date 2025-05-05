@@ -48,10 +48,11 @@ func requestFile(server string, filename string) error {
 		case MsgTypeData:
 			//validate checksum
 			if crc32.ChecksumIEEE(payload) != h.Checksum {
+				log.Printf("Checksum mismatch for Seq=%d", h.Seq)
 				nak, _ := Pack(MsgTypeNak, h.Seq, nil)
 				conn.Write(nak)
 			} else {
-				received[h.Seq] = payload
+				received[h.Seq] = append([]byte(nil), payload...)
 				ack, _ := Pack(MsgTypeAck, h.Seq, nil)
 				conn.Write(ack)
 			}
@@ -75,6 +76,7 @@ func assembleFile(fileName string, chunks map[uint32][]byte) error {
 	for seq := uint32(0); ; seq++ {
 		data, ok := chunks[seq]
 		if !ok {
+			log.Printf("Missing chunk: Seq=%d", seq)
 			break
 		}
 		out.Write(data)
