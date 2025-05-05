@@ -26,3 +26,5 @@ go.work.sum
 
 # binaries
 bin
+
+sample.log
