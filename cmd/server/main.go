@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"io"
 	"log"
 	"net"
@@ -12,7 +13,10 @@ import (
 )
 
 func main() {
-	addr, err := net.ResolveUDPAddr("udp", ":9000")
+	port := flag.String("port", "9000", "Server host port")
+	flag.Parse()
+
+	addr, err := net.ResolveUDPAddr("udp", ":"+*port)
 	if err != nil {
 		log.Fatalf("Error resolving address: %v", err)
 	}
@@ -21,6 +25,8 @@ func main() {
 		log.Fatalf("Error listening UDP: %v", err)
 	}
 	defer conn.Close()
+
+	log.Printf("Server running on port %s", *port)
 
 	buf := make([]byte, 1500)
 	for {
