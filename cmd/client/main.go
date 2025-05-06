@@ -6,8 +6,8 @@ import (
 	"hash/crc32"
 	"log"
 	"math/rand"
-	"net"
 	"os"
+	"strings"
 	"syscall"
 
 	. "github.com/caiqfrrz/udp-file-transfer/protocol"
@@ -26,10 +26,12 @@ func main() {
 }
 
 func requestFile(server string, filename string, drop bool) error {
-	addr, err := net.ResolveUDPAddr("udp", server)
+	ipStr, portStr, err := splitHostPort(server)
 	if err != nil {
-		return fmt.Errorf("resolve UDP addr: %v", err)
+		return fmt.Errorf("invalid server address: %v", err)
 	}
+
+	port := Atoi(portStr)
 
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
 	if err != nil {
@@ -38,8 +40,10 @@ func requestFile(server string, filename string, drop bool) error {
 	defer syscall.Close(fd)
 
 	var sa syscall.SockaddrInet4
-	sa.Port = addr.Port
-	copy(sa.Addr[:], addr.IP.To4())
+	sa.Port = port
+	if err := ipToBytes(ipStr, sa.Addr[:]); err != nil {
+		return fmt.Errorf("invalid IP: %v", err)
+	}
 
 	// send GET
 	getPkt, _ := Pack(MsgTypeGet, 0, []byte(filename))
@@ -63,7 +67,7 @@ func requestFile(server string, filename string, drop bool) error {
 
 		switch h.Type {
 		case MsgTypeData:
-			if rand.Float64() > 0.99 {
+			if drop && rand.Float64() > 0.99 {
 				simulateCorruption(payload)
 			}
 			//validate checksum
@@ -88,6 +92,30 @@ func requestFile(server string, filename string, drop bool) error {
 			return assembleFile(filename, received)
 		}
 	}
+}
+
+func splitHostPort(hostport string) (host, port string, err error) {
+	parts := strings.Split(hostport, ":")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid host:port format")
+	}
+	return parts[0], parts[1], nil
+}
+
+func ipToBytes(ipStr string, b []byte) error {
+	parts := strings.Split(ipStr, ".")
+	if len(parts) != 4 {
+		return fmt.Errorf("invalid IPv4 address")
+	}
+
+	for i, part := range parts {
+		num := Atoi(part)
+		if num < 0 || num > 255 {
+			return fmt.Errorf("invalid IP byte")
+		}
+		b[i] = byte(num)
+	}
+	return nil
 }
 
 func assembleFile(fileName string, chunks map[uint32][]byte) error {

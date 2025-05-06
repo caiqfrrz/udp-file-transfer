@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -23,7 +22,7 @@ func main() {
 	}
 	defer syscall.Close(fd)
 
-	addr := syscall.SockaddrInet4{Port: atoi(*port)}
+	addr := syscall.SockaddrInet4{Port: Atoi(*port)}
 	if err := syscall.Bind(fd, &addr); err != nil {
 		log.Fatalf("bind failed: %v", err)
 	}
@@ -153,10 +152,4 @@ func sockaddrToUDPAddr(sa syscall.Sockaddr) *net.UDPAddr {
 	default:
 		return nil
 	}
-}
-
-func atoi(s string) int {
-	var n int
-	fmt.Sscanf(s, "%d", &n)
-	return n
 }

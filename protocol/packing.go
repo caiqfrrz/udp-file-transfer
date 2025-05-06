@@ -55,3 +55,9 @@ func Unpack(packet []byte) (Header, []byte, error) {
 	payload := packet[11 : 11+int(h.Length)]
 	return h, payload, nil
 }
+
+func Atoi(s string) int {
+	var n int
+	fmt.Sscanf(s, "%d", &n)
+	return n
+}
