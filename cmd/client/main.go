@@ -81,7 +81,6 @@ func assembleFile(fileName string, chunks map[uint32][]byte) error {
 	for seq := uint32(0); ; seq++ {
 		data, ok := chunks[seq]
 		if !ok {
-			log.Printf("Missing chunk: Seq=%d", seq)
 			break
 		}
 		out.Write(data)
