@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"time"
@@ -15,15 +16,16 @@ import (
 func main() {
 	server := flag.String("server", "127.0.0.1:9000", "UDP server address")
 	file := flag.String("file", "test.dat", "Name of file to request")
+	drop := flag.Bool("drop", false, "Simulate package dropping")
 	flag.Parse()
 
-	if err := requestFile(*server, *file); err != nil {
+	if err := requestFile(*server, *file, *drop); err != nil {
 		log.Fatalf("transfer failed: %v", err)
 	}
 	log.Printf("File %q received successfully!", *file)
 }
 
-func requestFile(server string, filename string) error {
+func requestFile(server string, filename string, drop bool) error {
 	addr, _ := net.ResolveUDPAddr("udp", server)
 	conn, _ := net.DialUDP("udp", nil, addr)
 	defer conn.Close()
@@ -46,6 +48,9 @@ func requestFile(server string, filename string) error {
 
 		switch h.Type {
 		case MsgTypeData:
+			if rand.Float64() > 0.99 {
+				simulateCorruption(payload)
+			}
 			//validate checksum
 			if crc32.ChecksumIEEE(payload) != h.Checksum {
 				log.Printf("Checksum mismatch for Seq=%d", h.Seq)
@@ -81,5 +86,16 @@ func assembleFile(fileName string, chunks map[uint32][]byte) error {
 		}
 		out.Write(data)
 	}
+	return nil
+}
+
+func simulateCorruption(payload []byte) error {
+	if len(payload) == 0 {
+		return fmt.Errorf("empty payload")
+	}
+	for i := 0; i < len(payload)/2; i++ {
+		payload[rand.Intn(len(payload))] ^= 0xFF
+	}
+
 	return nil
 }

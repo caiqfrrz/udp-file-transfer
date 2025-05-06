@@ -120,6 +120,7 @@ func handleGet(connection *net.UDPConn, address *net.UDPAddr, filename string) {
 
 		case MsgTypeNak:
 			if pkt, ok := window[h.Seq]; ok {
+				log.Printf("Resending packet of sequence %d", h.Seq)
 				connection.WriteToUDP(pkt, address)
 			}
 		}

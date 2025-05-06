@@ -28,3 +28,4 @@ go.work.sum
 bin
 
 sample.log
+recreated_sample.log
