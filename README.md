@@ -71,7 +71,7 @@ go build -o bin/client ./cmd/client
 ```bash
 # Generate a test file and request it
 dd if=/dev/zero bs=1M count=2 of=sample.log   # create ~2 MiB test file
-./bin/client -server 127.0.0.1:9000 -file sample.log -drop   # (-drop is optional)
+./bin/client -server 127.0.0.1:9000 -file sample.log -drop   # -drop is optional
 ```
 
 On successful transfer, the client writes `recreated_sample.log` in its working directory.
