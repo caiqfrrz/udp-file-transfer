@@ -8,7 +8,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"time"
+	"syscall"
 
 	. "github.com/caiqfrrz/udp-file-transfer/protocol"
 )
@@ -26,25 +26,40 @@ func main() {
 }
 
 func requestFile(server string, filename string, drop bool) error {
-	addr, _ := net.ResolveUDPAddr("udp", server)
-	conn, _ := net.DialUDP("udp", nil, addr)
-	defer conn.Close()
+	addr, err := net.ResolveUDPAddr("udp", server)
+	if err != nil {
+		return fmt.Errorf("resolve UDP addr: %v", err)
+	}
+
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
+	if err != nil {
+		return fmt.Errorf("socket creation failed: %v", err)
+	}
+	defer syscall.Close(fd)
+
+	var sa syscall.SockaddrInet4
+	sa.Port = addr.Port
+	copy(sa.Addr[:], addr.IP.To4())
 
 	// send GET
 	getPkt, _ := Pack(MsgTypeGet, 0, []byte(filename))
-	conn.Write(getPkt)
+	if err := syscall.Sendto(fd, getPkt, 0, &sa); err != nil {
+		return fmt.Errorf("sendto failed: %v", err)
+	}
 
 	received := make(map[uint32][]byte)
 	buf := make([]byte, 1500)
-	timeout := 5 * time.Second
 
 	for {
-		conn.SetReadDeadline(time.Now().Add(timeout))
-		n, _, err := conn.ReadFromUDP(buf)
+		n, _, err := syscall.Recvfrom(fd, buf, 0)
 		if err != nil {
-			return fmt.Errorf("timeout or reading error: %v", err)
+			return fmt.Errorf("recvfrom failed: %v", err)
 		}
-		h, payload, _ := Unpack(buf[:n])
+
+		h, payload, err := Unpack(buf[:n])
+		if err != nil {
+			return fmt.Errorf("unpack failed: %v", err)
+		}
 
 		switch h.Type {
 		case MsgTypeData:
@@ -55,11 +70,15 @@ func requestFile(server string, filename string, drop bool) error {
 			if crc32.ChecksumIEEE(payload) != h.Checksum {
 				log.Printf("Checksum mismatch for Seq=%d", h.Seq)
 				nak, _ := Pack(MsgTypeNak, h.Seq, nil)
-				conn.Write(nak)
+				if err := syscall.Sendto(fd, nak, 0, &sa); err != nil {
+					return fmt.Errorf("sendto NAK failed: %v", err)
+				}
 			} else {
 				received[h.Seq] = append([]byte(nil), payload...)
 				ack, _ := Pack(MsgTypeAck, h.Seq, nil)
-				conn.Write(ack)
+				if err := syscall.Sendto(fd, ack, 0, &sa); err != nil {
+					return fmt.Errorf("sendto ACK failed: %v", err)
+				}
 			}
 		case MsgTypeErr:
 			return fmt.Errorf("server error: %s", payload)

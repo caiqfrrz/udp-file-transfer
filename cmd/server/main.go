@@ -3,11 +3,12 @@ package main
 import (
 	"bufio"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
-	"time"
+	"syscall"
 
 	. "github.com/caiqfrrz/udp-file-transfer/protocol"
 )
@@ -16,23 +17,24 @@ func main() {
 	port := flag.String("port", "9000", "Server host port")
 	flag.Parse()
 
-	addr, err := net.ResolveUDPAddr("udp", ":"+*port)
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
 	if err != nil {
-		log.Fatalf("Error resolving address: %v", err)
+		log.Fatalf("Socket creation failed: %v", err)
 	}
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		log.Fatalf("Error listening UDP: %v", err)
+	defer syscall.Close(fd)
+
+	addr := syscall.SockaddrInet4{Port: atoi(*port)}
+	if err := syscall.Bind(fd, &addr); err != nil {
+		log.Fatalf("bind failed: %v", err)
 	}
-	defer conn.Close()
 
 	log.Printf("Server running on port %s", *port)
 
 	buf := make([]byte, 1500)
 	for {
-		n, clientAddr, err := conn.ReadFromUDP(buf)
+		n, clientSA, err := syscall.Recvfrom(fd, buf, 0)
 		if err != nil {
-			log.Printf("Read error: %v", err)
+			log.Printf("Recvfrom failed: %v", err)
 			continue
 		}
 
@@ -44,29 +46,34 @@ func main() {
 
 		if h.Type == MsgTypeGet {
 			filename := string(payload)
-			handleGet(conn, clientAddr, filename)
+			handleGet(fd, clientSA.(*syscall.SockaddrInet4), filename)
 		}
 	}
 }
 
-func handleGet(connection *net.UDPConn, address *net.UDPAddr, filename string) {
+func handleGet(fd int, address *syscall.SockaddrInet4, filename string) {
 	f, err := os.Open(filename)
 	if err != nil {
 		pkt, _ := Pack(MsgTypeErr, 0, []byte("File not found"))
-		connection.WriteToUDP(pkt, address)
+		syscall.Sendto(fd, pkt, 0, address)
 		return
 	}
 	defer f.Close()
 
-	fileInfo, err := f.Stat()
-	if err == nil {
-		log.Printf("Sending file %s (%d bytes) to %s", filename, fileInfo.Size(), address.String())
+	// Log file info (optional)
+	if stat, err := f.Stat(); err == nil {
+		log.Printf("Sending %s (%d bytes) to %d.%d.%d.%d:%d",
+			filename, stat.Size(),
+			address.Addr[0], address.Addr[1], address.Addr[2], address.Addr[3],
+			address.Port,
+		)
 	}
 
 	reader := bufio.NewReader(f)
-	const payloadSize = 1024
-	windowSize := 5
-	timeout := 2 * time.Second
+	const (
+		payloadSize = 1024
+		windowSize  = 5
+	)
 
 	window := make(map[uint32][]byte)
 	acked := make(map[uint32]bool)
@@ -80,22 +87,17 @@ func handleGet(connection *net.UDPConn, address *net.UDPAddr, filename string) {
 		}
 
 		pkt, _ := Pack(MsgTypeData, nextSeq, data[:n])
-		connection.WriteToUDP(pkt, address)
+		syscall.Sendto(fd, pkt, 0, address)
 		window[nextSeq] = pkt // keep for retransmition
 		nextSeq++
 	}
 
+	// wait for ACK/NAK
 	buf := make([]byte, 1500)
 	for {
-		connection.SetReadDeadline(time.Now().Add(timeout))
-
-		n, _, err := connection.ReadFromUDP(buf)
+		n, _, err := syscall.Recvfrom(fd, buf, 0)
 		if err != nil {
-			for seq, pkt := range window {
-				if !acked[seq] {
-					connection.WriteToUDP(pkt, address)
-				}
-			}
+			log.Printf("recvfrom failed: %v", err)
 			continue
 		}
 
@@ -113,7 +115,7 @@ func handleGet(connection *net.UDPConn, address *net.UDPAddr, filename string) {
 			}
 			if m > 0 {
 				pkt, _ := Pack(MsgTypeData, nextSeq, data[:m])
-				connection.WriteToUDP(pkt, address)
+				syscall.Sendto(fd, pkt, 0, address)
 				window[nextSeq] = pkt
 				nextSeq++
 			}
@@ -121,15 +123,40 @@ func handleGet(connection *net.UDPConn, address *net.UDPAddr, filename string) {
 		case MsgTypeNak:
 			if pkt, ok := window[h.Seq]; ok {
 				log.Printf("Resending packet of sequence %d", h.Seq)
-				connection.WriteToUDP(pkt, address)
+				syscall.Sendto(fd, pkt, 0, address)
 			}
 		}
 
 		if len(window) == 0 {
 			fin, _ := Pack(MsgTypeFin, 0, nil)
-			connection.WriteToUDP(fin, address)
-			connection.SetReadDeadline(time.Time{})
+			syscall.Sendto(fd, fin, 0, address)
 			return
 		}
 	}
+}
+
+func syscallSendTo(fd int, pkt []byte, addr *net.UDPAddr) error {
+	sa := &syscall.SockaddrInet4{
+		Port: addr.Port,
+	}
+	copy(sa.Addr[:], addr.IP.To4())
+	return syscall.Sendto(fd, pkt, 0, sa)
+}
+
+func sockaddrToUDPAddr(sa syscall.Sockaddr) *net.UDPAddr {
+	switch addr := sa.(type) {
+	case *syscall.SockaddrInet4:
+		return &net.UDPAddr{
+			IP:   net.IPv4(addr.Addr[0], addr.Addr[1], addr.Addr[2], addr.Addr[3]),
+			Port: addr.Port,
+		}
+	default:
+		return nil
+	}
+}
+
+func atoi(s string) int {
+	var n int
+	fmt.Sscanf(s, "%d", &n)
+	return n
 }
