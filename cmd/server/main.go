@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"syscall"
+	"time"
 
 	. "github.com/caiqfrrz/udp-file-transfer/protocol"
 )
@@ -45,9 +46,16 @@ func main() {
 
 	buf := make([]byte, 1500)
 	for {
+		tv := syscall.Timeval{Sec: 30, Usec: 0}
+		syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv)
+
 		n, clientSA, err := syscall.Recvfrom(fd, buf, 0)
 		if err != nil {
-			log.Printf("Recvfrom failed: %v", err)
+			if err != syscall.EAGAIN && err != syscall.EWOULDBLOCK {
+				log.Printf("Recvfrom failed: %v", err)
+			}
+
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 
