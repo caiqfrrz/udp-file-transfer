@@ -36,10 +36,6 @@ func main() {
 	defer syscall.Close(fd)
 	debugLog("socket created")
 
-	if err := setSocketBuffers(fd); err != nil {
-		log.Printf("Warning: couldn't increase socket buffers: %v", err)
-	}
-
 	addr := syscall.SockaddrInet4{Port: Atoi(*port)}
 	if err := syscall.Bind(fd, &addr); err != nil {
 		log.Fatalf("bind failed: %v", err)
@@ -63,7 +59,7 @@ func main() {
 
 		if h.Type == MsgTypeGet {
 			filename := string(payload)
-			handleGet(fd, clientSA.(*syscall.SockaddrInet4), filename)
+			go handleGet(fd, clientSA.(*syscall.SockaddrInet4), filename)
 		}
 	}
 }
@@ -154,16 +150,4 @@ func handleGet(fd int, address *syscall.SockaddrInet4, filename string) {
 			return
 		}
 	}
-}
-
-func setSocketBuffers(fd int) error {
-	// Increase receive buffer (2MB)
-	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, 2*1024*1024); err != nil {
-		return err
-	}
-	// Increase send buffer (2MB)
-	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_SNDBUF, 2*1024*1024); err != nil {
-		return err
-	}
-	return nil
 }
