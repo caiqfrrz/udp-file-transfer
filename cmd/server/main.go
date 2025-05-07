@@ -51,6 +51,10 @@ func main() {
 
 		n, clientSA, err := syscall.Recvfrom(fd, buf, 0)
 		if err != nil {
+			if err == syscall.EINTR {
+				continue
+			}
+
 			if err != syscall.EAGAIN && err != syscall.EWOULDBLOCK {
 				log.Printf("Recvfrom failed: %v", err)
 			}
@@ -128,13 +132,15 @@ func handleGet(fd int, address *syscall.SockaddrInet4, filename string) {
 	for {
 		n, _, err := syscall.Recvfrom(fd, buf, 0)
 		if err != nil {
-			// ADD THIS: Handle timeout
+			if err == syscall.EINTR {
+				continue
+			}
+
 			if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
-				// Timeout occurred - retransmit all unacknowledged packets
 				for seq, pkt := range window {
 					retransmits[seq]++
 					if retransmits[seq] > maxRetransmits {
-						log.Printf("Maximum retransmits reached for packet %d, giving up", seq)
+						log.Printf("maximum retransmits reached for packet %d, giving up", seq)
 						fin, _ := Pack(MsgTypeFin, 0, []byte("Maximum retransmits exceeded"))
 						syscall.Sendto(fd, fin, 0, address)
 						return
