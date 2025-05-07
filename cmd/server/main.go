@@ -59,7 +59,7 @@ func main() {
 
 		if h.Type == MsgTypeGet {
 			filename := string(payload)
-			go handleGet(fd, clientSA.(*syscall.SockaddrInet4), filename)
+			handleGet(fd, clientSA.(*syscall.SockaddrInet4), filename)
 		}
 	}
 }
