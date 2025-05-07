@@ -71,8 +71,16 @@ func requestFile(server string, filename string, drop bool) error {
 	buf := make([]byte, 1500)
 
 	for {
+		tv := syscall.Timeval{Sec: 5, Usec: 0}
+		if err := syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv); err != nil {
+			return fmt.Errorf("timeout setting error: %v", err)
+		}
+
 		n, _, err := syscall.Recvfrom(fd, buf, 0)
 		if err != nil {
+			if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
+				return fmt.Errorf("timeout: no packet received in 5s, system may be down")
+			}
 			return fmt.Errorf("recvfrom failed: %v", err)
 		}
 
