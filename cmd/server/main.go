@@ -5,22 +5,36 @@ import (
 	"flag"
 	"io"
 	"log"
-	"net"
 	"os"
 	"syscall"
 
 	. "github.com/caiqfrrz/udp-file-transfer/protocol"
 )
 
+var debug = false
+
+func debugLog(format string, v ...interface{}) {
+	if debug {
+		log.Printf("[DEBUG] "+format, v...)
+	}
+}
+
+func setDebug(set bool) {
+	debug = set
+}
+
 func main() {
 	port := flag.String("port", "9000", "Server host port")
+	debug := flag.Bool("debug", false, "Debug logs")
 	flag.Parse()
 
+	setDebug(*debug)
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
 	if err != nil {
 		log.Fatalf("Socket creation failed: %v", err)
 	}
 	defer syscall.Close(fd)
+	debugLog("socket created")
 
 	addr := syscall.SockaddrInet4{Port: Atoi(*port)}
 	if err := syscall.Bind(fd, &addr); err != nil {
@@ -90,6 +104,7 @@ func handleGet(fd int, address *syscall.SockaddrInet4, filename string) {
 		window[nextSeq] = pkt // keep for retransmition
 		nextSeq++
 	}
+	debugLog("window is full")
 
 	// wait for ACK/NAK
 	buf := make([]byte, 1500)
@@ -104,6 +119,7 @@ func handleGet(fd int, address *syscall.SockaddrInet4, filename string) {
 
 		switch h.Type {
 		case MsgTypeAck:
+			debugLog("ack for packet seq: %d", h.Seq)
 			delete(window, h.Seq)
 			acked[h.Seq] = true
 
@@ -120,6 +136,7 @@ func handleGet(fd int, address *syscall.SockaddrInet4, filename string) {
 			}
 
 		case MsgTypeNak:
+			debugLog("nak for packet seq: %d", h.Seq)
 			if pkt, ok := window[h.Seq]; ok {
 				log.Printf("Resending packet of sequence %d", h.Seq)
 				syscall.Sendto(fd, pkt, 0, address)
@@ -127,29 +144,10 @@ func handleGet(fd int, address *syscall.SockaddrInet4, filename string) {
 		}
 
 		if len(window) == 0 {
+			debugLog("end")
 			fin, _ := Pack(MsgTypeFin, 0, nil)
 			syscall.Sendto(fd, fin, 0, address)
 			return
 		}
-	}
-}
-
-func syscallSendTo(fd int, pkt []byte, addr *net.UDPAddr) error {
-	sa := &syscall.SockaddrInet4{
-		Port: addr.Port,
-	}
-	copy(sa.Addr[:], addr.IP.To4())
-	return syscall.Sendto(fd, pkt, 0, sa)
-}
-
-func sockaddrToUDPAddr(sa syscall.Sockaddr) *net.UDPAddr {
-	switch addr := sa.(type) {
-	case *syscall.SockaddrInet4:
-		return &net.UDPAddr{
-			IP:   net.IPv4(addr.Addr[0], addr.Addr[1], addr.Addr[2], addr.Addr[3]),
-			Port: addr.Port,
-		}
-	default:
-		return nil
 	}
 }

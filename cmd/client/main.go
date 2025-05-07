@@ -13,12 +13,26 @@ import (
 	. "github.com/caiqfrrz/udp-file-transfer/protocol"
 )
 
+var debug = false
+
+func debugLog(format string, v ...interface{}) {
+	if debug {
+		log.Printf("[DEBUG] "+format, v...)
+	}
+}
+
+func setDebug(set bool) {
+	debug = set
+}
+
 func main() {
 	server := flag.String("server", "127.0.0.1:9000", "UDP server address")
 	file := flag.String("file", "test.dat", "Name of file to request")
 	drop := flag.Bool("drop", false, "Simulate package dropping")
+	debug := flag.Bool("debug", false, "Debug mode log")
 	flag.Parse()
 
+	setDebug(*debug)
 	if err := requestFile(*server, *file, *drop); err != nil {
 		log.Fatalf("transfer failed: %v", err)
 	}
@@ -34,6 +48,7 @@ func requestFile(server string, filename string, drop bool) error {
 	port := Atoi(portStr)
 
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
+	debugLog("socket created")
 	if err != nil {
 		return fmt.Errorf("socket creation failed: %v", err)
 	}
@@ -50,6 +65,7 @@ func requestFile(server string, filename string, drop bool) error {
 	if err := syscall.Sendto(fd, getPkt, 0, &sa); err != nil {
 		return fmt.Errorf("sendto failed: %v", err)
 	}
+	debugLog("get sent to server")
 
 	received := make(map[uint32][]byte)
 	buf := make([]byte, 1500)
@@ -67,6 +83,7 @@ func requestFile(server string, filename string, drop bool) error {
 
 		switch h.Type {
 		case MsgTypeData:
+			debugLog("received payload seq: %d", h.Seq)
 			if drop && rand.Float64() > 0.99 {
 				simulateCorruption(payload)
 			}
