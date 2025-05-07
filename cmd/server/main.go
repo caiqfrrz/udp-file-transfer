@@ -92,6 +92,9 @@ func handleGet(fd int, address *syscall.SockaddrInet4, filename string) {
 	acked := make(map[uint32]bool)
 	nextSeq := uint32(0)
 
+	retransmits := make(map[uint32]int)
+	maxRetransmits := 5
+
 	for i := 0; i < windowSize; i++ {
 		data := make([]byte, payloadSize)
 		n, _ := io.ReadFull(reader, data)
@@ -106,16 +109,44 @@ func handleGet(fd int, address *syscall.SockaddrInet4, filename string) {
 	}
 	debugLog("window is full")
 
+	tv := syscall.Timeval{Sec: 2, Usec: 0}
+	if err := syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv); err != nil {
+		log.Printf("Failed to set socket timeout: %v", err)
+		return
+	}
+
 	// wait for ACK/NAK
 	buf := make([]byte, 1500)
 	for {
 		n, _, err := syscall.Recvfrom(fd, buf, 0)
 		if err != nil {
+			// ADD THIS: Handle timeout
+			if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
+				// Timeout occurred - retransmit all unacknowledged packets
+				for seq, pkt := range window {
+					retransmits[seq]++
+					if retransmits[seq] > maxRetransmits {
+						log.Printf("Maximum retransmits reached for packet %d, giving up", seq)
+						fin, _ := Pack(MsgTypeFin, 0, []byte("Maximum retransmits exceeded"))
+						syscall.Sendto(fd, fin, 0, address)
+						return
+					}
+
+					log.Printf("Timeout: Resending packet %d (attempt %d/%d)",
+						seq, retransmits[seq], maxRetransmits)
+					syscall.Sendto(fd, pkt, 0, address)
+				}
+				continue
+			}
 			log.Printf("recvfrom failed: %v", err)
 			continue
 		}
 
 		h, _, _ := Unpack(buf[:n])
+
+		if h.Type == MsgTypeAck {
+			retransmits[h.Seq] = 0
+		}
 
 		switch h.Type {
 		case MsgTypeAck:
