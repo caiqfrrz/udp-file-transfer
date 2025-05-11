@@ -6,8 +6,8 @@ This project implements a **simple reliable file transfer** application over UDP
 
 - **Custom Aplication Protocol**: Fixed header per datagram containing message type, sequence number, payload length and CRC32 checksum.
 - **Sliding Window**: Configurable sliding window size for pipelined transmission.
-- **Selective Retransmission**: Uses ACK/NAK for individual segments with timeout-based fallback.
-- **Minimal Dependencies**: Uses Go's standard `net` package, without high level UDP abstractions.
+- **Selective Retransmission**: Uses ACK/NAK for individual segments with timeout-based fallback, retransmits packages if response never arrived.
+- **Minimal Dependencies**: Uses Go's syscall package for direct socket managing, without high level UDP abstractions.
 - **Simulated Payload Corruption**: Simulates corruption of payload to test resending data.
 
 ## Protocol Details
@@ -69,9 +69,7 @@ go build -o bin/client ./cmd/client
 ### Downloading a file with the client
 
 ```bash
-# Generate a test file and request it
-dd if=/dev/zero bs=1M count=2 of=sample.log   # create ~2 MiB test file
-./bin/client -server 127.0.0.1:9000 -file sample.log -drop   # -drop is optional
+./bin/client -server 127.0.0.1:9000 -file file.log -drop   # -drop to simulate package corruption
 ```
 
-On successful transfer, the client writes `recreated_sample.log` in its working directory.
+On successful transfer, the client writes `recreated_file.log` in its working directory.
